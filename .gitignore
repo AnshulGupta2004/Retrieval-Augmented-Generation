@@ -1,2 +1,2 @@
 .env
-vectorstore.pkl
+/vectorstore.pkl
