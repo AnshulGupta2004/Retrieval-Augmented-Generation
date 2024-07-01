@@ -1,30 +1,32 @@
-import streamlit as st
+# Import necessary libraries
+import streamlit as st  # Web app framework
 import os
-from langchain_community.document_loaders import PyPDFLoader, WebBaseLoader
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_groq import ChatGroq
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-import tempfile
-import pyttsx3
-import speech_recognition as sr
+from langchain_community.document_loaders import PyPDFLoader, WebBaseLoader  # Document loaders
+from langchain_community.vectorstores import FAISS  # Vector store for document embeddings
+from langchain_community.embeddings import OllamaEmbeddings  # Text embedding model
+from langchain.text_splitter import RecursiveCharacterTextSplitter  # Text splitting utility
+from langchain_groq import ChatGroq  # Groq language model
+from langchain.chains import ConversationalRetrievalChain  # Conversation chain
+from langchain.memory import ConversationBufferMemory  # Conversation memory
+import tempfile  # Temporary file handling
+import pyttsx3  # Text-to-speech conversion
+import speech_recognition as sr  # Speech recognition
 import io
-from PyPDF2 import PdfReader
-import pickle
-import base64
-from bs4 import BeautifulSoup
-import requests
-import fitz  # PyMuPDF
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import LLMChainExtractor
-from dotenv import load_dotenv
+from PyPDF2 import PdfReader  # PDF reading utility
+import pickle  # Object serialization
+import base64  # Base64 encoding/decoding
+from bs4 import BeautifulSoup  # HTML parsing
+import requests  # HTTP requests
+import fitz  # PyMuPDF for PDF manipulation
+from langchain.retrievers import ContextualCompressionRetriever  # Advanced document retrieval
+from langchain.retrievers.document_compressors import LLMChainExtractor  # Document compression
+from dotenv import load_dotenv  # Environment variable loading
 
+# Load environment variables
 load_dotenv()
 
 # Initialize Groq LLM
-llm = ChatGroq(temperature=0,model_name="mixtral-8x7b-32768", groq_api_key=os.environ["GROQ_API_KEY"])
+llm = ChatGroq(temperature=0, model_name="mixtral-8x7b-32768", groq_api_key=os.environ["GROQ_API_KEY"])
 
 # Initialize Ollama embeddings
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
@@ -33,6 +35,16 @@ embeddings = OllamaEmbeddings(model="nomic-embed-text")
 recognizer = sr.Recognizer()
 
 def process_documents(docs, is_url=False):
+    """
+    Process uploaded documents or URLs and create a vector store.
+
+    Args:
+    docs (list): List of uploaded documents or URLs
+    is_url (bool): Flag to indicate if the input is a URL
+
+    Returns:
+    FAISS: Vector store containing document embeddings
+    """
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     texts = []
     for doc in docs:
@@ -57,12 +69,24 @@ def process_documents(docs, is_url=False):
     return vectorstore
 
 def load_vectorstore():
+    """
+    Load the vector store from a pickle file if it exists.
+
+    Returns:
+    FAISS or None: Loaded vector store or None if file doesn't exist
+    """
     if os.path.exists("vectorstore.pkl"):
         with open("vectorstore.pkl", "rb") as f:
             return pickle.load(f)
     return None
 
 def get_audio_input():
+    """
+    Capture audio input from the user's microphone and convert it to text.
+
+    Returns:
+    str or None: Recognized text from audio or None if recognition fails
+    """
     with sr.Microphone() as source:
         st.write("Listening...")
         audio = recognizer.listen(source)
@@ -77,11 +101,28 @@ def get_audio_input():
         return None
 
 def text_to_speech(text):
+    """
+    Convert text to speech and save as an audio file.
+
+    Args:
+    text (str): Text to be converted to speech
+    """
     engine = pyttsx3.init()
     engine.save_to_file(text, 'output.mp3')
     engine.runAndWait()
 
 def highlight_pdf(pdf_path, page_num, context):
+    """
+    Highlight the given context in a PDF file.
+
+    Args:
+    pdf_path (str): Path to the PDF file
+    page_num (int): Page number to highlight
+    context (str): Text to highlight in the PDF
+
+    Returns:
+    str: Base64 encoded string of the highlighted PDF
+    """
     doc = fitz.open(pdf_path)
     page = doc[page_num - 1]  # PyMuPDF uses 0-based page numbers
     rects = page.search_for(context)
@@ -94,10 +135,20 @@ def highlight_pdf(pdf_path, page_num, context):
     return base64_pdf
 
 def clean_url_content(url):
+    """
+    Fetch and clean content from a given URL.
+
+    Args:
+    url (str): URL to fetch content from
+
+    Returns:
+    str: Cleaned text content from the URL
+    """
     response = requests.get(url)
     soup = BeautifulSoup(response.content, 'html.parser')
     return soup.get_text()
 
+# Set up Streamlit page configuration
 st.set_page_config(layout="wide")
 st.title("Chat with Your Documents")
 
@@ -147,8 +198,11 @@ with col1:
                     tmp_file.write(selected_doc_file.getvalue())
                     tmp_file_path = tmp_file.name
 
-                if 'highlighted_context' in st.session_state:
-                    base64_pdf = highlight_pdf(tmp_file_path, page_num, st.session_state.highlighted_context)
+                # Get the current query's context for highlighting
+                current_context = st.session_state.get('current_context', '')
+                
+                if current_context:
+                    base64_pdf = highlight_pdf(tmp_file_path, page_num, current_context)
                     pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="700" height="1000" type="application/pdf"></iframe>'
                     st.markdown(pdf_display, unsafe_allow_html=True)
                 else:
@@ -208,7 +262,6 @@ with col2:
                 retriever=compression_retriever,
                 memory=memory,
                 return_source_documents=True,
-                # output_key="answer"  # Add this line to specify the output key
             )
 
             with chat_container:
@@ -217,10 +270,10 @@ with col2:
                         response = conversation_chain({"question": user_input})
                         st.markdown(response['answer'])
                         
-                        # Highlight the context in the PDF
+                        # Update the current context for PDF highlighting
                         if doc_type == "PDF" and response.get('source_documents'):
                             context = response['source_documents'][0].page_content
-                            st.session_state.highlighted_context = context
+                            st.session_state.current_context = context
 
                         # Generate audio output
                         text_to_speech(response['answer'])
