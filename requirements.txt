@@ -11,3 +11,4 @@ PyPDF2
 beautifulsoup4
 requests
 PyMuPDF
+python-dotenv
