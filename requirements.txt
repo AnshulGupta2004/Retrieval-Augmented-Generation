@@ -6,7 +6,6 @@ faiss-cpu
 pypdf
 pyttsx3
 SpeechRecognition
-PyAudio
 PyPDF2
 beautifulsoup4
 requests
